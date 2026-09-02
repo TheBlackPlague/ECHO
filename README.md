@@ -2,7 +2,7 @@
 <div align="center">
 
 <h1>
-  <img src=".readme/echo-icon.svg" alt="ECHO" width="64" height="64" align="middle">
+  <img src=".readme/echo-icon.svg" alt="ECHO" width="48" height="48" align="center">
   ECHO
 </h1>
 
