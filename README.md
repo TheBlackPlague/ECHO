@@ -18,9 +18,8 @@
 </div>
 
 > [!WARNING]
-> ECHO is under active development. Its configuration, API, database schema, and
-> interface may change before the first stable release. Do not use it as the only
-> copy of important data.
+> ECHO is technically stable in its current state, but remains under active development. Its configuration, API,
+> database schema, and interface may change significantly before the first major release.
 
 ## Overview
 
