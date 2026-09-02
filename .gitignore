@@ -1,0 +1,155 @@
+# =============================================================================
+# ECHO
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.so
+
+.python-version
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build output
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Test / coverage output
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+reports/
+frontend/coverage/
+.tox/
+.nox/
+
+# Type checkers / linters
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+
+# -----------------------------------------------------------------------------
+# PyCharm / JetBrains
+# -----------------------------------------------------------------------------
+
+.idea/
+
+
+# -----------------------------------------------------------------------------
+# ECHO Configuration
+# -----------------------------------------------------------------------------
+
+# Local runtime configuration.
+# Keep config.example.yml committed instead.
+config/config.yml
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+
+# -----------------------------------------------------------------------------
+# ECHO Runtime Data
+# -----------------------------------------------------------------------------
+
+frontend/src/api/generated/
+
+logs/
+data/
+runtime/
+tmp/
+temp/
+generated/
+
+*.log
+*.pid
+
+
+# -----------------------------------------------------------------------------
+# rclone
+# -----------------------------------------------------------------------------
+
+# Local rclone configuration may contain credentials.
+rclone.conf
+
+# Temporary/partial transfer files
+*.partial
+
+
+# -----------------------------------------------------------------------------
+# Frontend / Node.js
+# -----------------------------------------------------------------------------
+
+node_modules/
+
+# Build output
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/.nuxt/
+frontend/.svelte-kit/
+
+# Frontend tooling caches
+frontend/.vite/
+frontend/.cache/
+
+# Package-manager debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# -----------------------------------------------------------------------------
+# IDE / Editor
+# -----------------------------------------------------------------------------
+
+.vscode/
+
+*.swp
+*.swo
+*~
+
+
+# -----------------------------------------------------------------------------
+# Operating Systems
+# -----------------------------------------------------------------------------
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+Thumbs.db
+Desktop.ini
+
+
+# -----------------------------------------------------------------------------
+# Docker
+# -----------------------------------------------------------------------------
+
+docker-compose.override.yml
+
+
+# -----------------------------------------------------------------------------
+# Miscellaneous
+# -----------------------------------------------------------------------------
+
+*.bak
+*.tmp
