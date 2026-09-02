@@ -1,0 +1,170 @@
+name: Image Publishing
+
+on:
+    push:
+        branches: [ main, frontend, "v*" ]
+        paths:
+            - "src/**"
+            - "frontend/**"
+            - "generated/openapi.json"
+            - "scripts/**"
+            - "docker/**"
+            - "Dockerfile"
+            - ".dockerignore"
+            - "pyproject.toml"
+            - "poetry.lock"
+            - ".github/workflows/images.yml"
+    pull_request:
+        branches: [ main, frontend, "v*" ]
+        types: [ opened, synchronize, reopened ]
+        paths:
+            - "src/**"
+            - "frontend/**"
+            - "generated/openapi.json"
+            - "scripts/**"
+            - "docker/**"
+            - "Dockerfile"
+            - ".dockerignore"
+            - "pyproject.toml"
+            - "poetry.lock"
+            - ".github/workflows/images.yml"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    packages: write
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 30
+
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v7
+                with:
+                    persist-credentials: false
+
+            -   name: Image Name & Tag
+                id: image_info
+                shell: bash
+                env:
+                    EVENT_NAME: ${{ github.event_name }}
+                    PR_BRANCH: ${{ github.head_ref }}
+                    PR_SHA: ${{ github.event.pull_request.head.sha }}
+                    BRANCH_NAME: ${{ github.ref_name }}
+                    COMMIT_SHA: ${{ github.sha }}
+                run: |
+                    set -euo pipefail
+
+                    if [[ "$EVENT_NAME" == "pull_request" ]]; then
+                        branch="$PR_BRANCH"
+                        revision="$PR_SHA"
+                    else
+                        branch="$BRANCH_NAME"
+                        revision="$COMMIT_SHA"
+                    fi
+
+                    branch="$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//')"
+                    branch="${branch:0:111}"
+
+                    if [[ -z "$branch" ]]; then
+                        branch="image"
+                    fi
+
+                    tag="${branch}-${revision:0:16}"
+                    image_name="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/echo"
+
+                    printf 'name=%s\n' "$image_name" >> "$GITHUB_OUTPUT"
+                    printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+                    printf 'revision=%s\n' "$revision" >> "$GITHUB_OUTPUT"
+
+                    {
+                        printf 'tags<<EOF\n'
+                        printf '%s:%s\n' "$image_name" "$tag"
+
+                        if [[ "$EVENT_NAME" != "pull_request" && "$BRANCH_NAME" == "main" ]]; then
+                            printf '%s:latest\n' "$image_name"
+                        fi
+
+                        printf 'EOF\n'
+                    } >> "$GITHUB_OUTPUT"
+
+            -   name: Docker Setup
+                id: docker_setup
+                uses: docker/setup-buildx-action@v4
+
+            -   name: GHCR Login
+                id: registry_login
+                uses: docker/login-action@v4
+                with:
+                    registry: ghcr.io
+                    username: ${{ github.actor }}
+                    password: ${{ secrets.GITHUB_TOKEN }}
+
+            -   name: Build & Push
+                id: image
+                uses: docker/build-push-action@v7
+                with:
+                    context: .
+                    file: Dockerfile
+                    platforms: linux/amd64
+                    push: true
+                    tags: ${{ steps.image_info.outputs.tags }}
+                    cache-from: type=gha,scope=echo
+                    cache-to: type=gha,mode=max,scope=echo
+                    labels: |
+                        org.opencontainers.image.title=ECHO
+                        org.opencontainers.image.description=Emergency Copy Held Offsite
+                        org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+                        org.opencontainers.image.revision=${{ steps.image_info.outputs.revision }}
+                        org.opencontainers.image.version=${{ steps.image_info.outputs.tag }}
+
+            -   name: Job Summary
+                if: always()
+                continue-on-error: true
+                shell: bash
+                env:
+                    SETUP_OUTCOME: ${{ steps.docker_setup.outcome }}
+                    LOGIN_OUTCOME: ${{ steps.registry_login.outcome }}
+                    BUILD_OUTCOME: ${{ steps.image.outcome }}
+                    IMAGE_NAME: ${{ steps.image_info.outputs.name }}
+                    IMAGE_TAGS: ${{ steps.image_info.outputs.tags }}
+                    REVISION: ${{ steps.image_info.outputs.revision }}
+                    DIGEST: ${{ steps.image.outputs.digest }}
+                run: |
+                    status() {
+                        case "$1" in
+                            success) printf '✅ Passed' ;;
+                            failure) printf '❌ Failed' ;;
+                            cancelled) printf '⚪ Cancelled' ;;
+                            skipped) printf '⏭️ Skipped' ;;
+                            *) printf '➖ Not run' ;;
+                        esac
+                    }
+
+                    {
+                        printf '## Container image publishing\n\n'
+                        printf '| Check | Result |\n'
+                        printf '| --- | --- |\n'
+                        printf '| Docker Buildx setup | %s |\n' "$(status "$SETUP_OUTCOME")"
+                        printf '| GHCR authentication | %s |\n' "$(status "$LOGIN_OUTCOME")"
+                        printf '| Build and push | %s |\n' "$(status "$BUILD_OUTCOME")"
+                        printf '\n### Image\n\n'
+                        printf '| Property | Value |\n'
+                        printf '| --- | --- |\n'
+                        printf '| Name | `%s` |\n' "${IMAGE_NAME:-Unavailable}"
+                        printf '| Platform | `linux/amd64` |\n'
+                        printf '| Revision | `%s` |\n' "${REVISION:-Unavailable}"
+                        printf '| Digest | `%s` |\n' "${DIGEST:-Unavailable}"
+                        printf '\n### Requested tags\n\n'
+
+                        if [[ -n "$IMAGE_TAGS" ]]; then
+                            while IFS= read -r tag; do
+                                [[ -n "$tag" ]] && printf -- '- `%s`\n' "$tag"
+                            done <<< "$IMAGE_TAGS"
+                        else
+                            printf 'Image tags were not produced.\n'
+                        fi
+                    } >> "$GITHUB_STEP_SUMMARY"

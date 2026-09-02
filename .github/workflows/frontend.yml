@@ -1,0 +1,167 @@
+name: Frontend
+
+on:
+    push:
+        branches: [ main, frontend, "v*" ]
+        paths:
+            - "frontend/**"
+            - "generated/openapi.json"
+            - "scripts/export_openapi.py"
+            - "src/echo/api/**"
+            - "src/echo/application.py"
+            - "src/echo/archive/models.py"
+            - "src/echo/core/config.py"
+            - "src/echo/integrations/rclone/**"
+            - "pyproject.toml"
+            - "poetry.lock"
+            - ".github/workflows/frontend.yml"
+    pull_request:
+        branches: [ main, frontend, "v*" ]
+        types: [ opened, synchronize, reopened ]
+        paths:
+            - "frontend/**"
+            - "generated/openapi.json"
+            - "scripts/export_openapi.py"
+            - "src/echo/api/**"
+            - "src/echo/application.py"
+            - "src/echo/archive/models.py"
+            - "src/echo/core/config.py"
+            - "src/echo/integrations/rclone/**"
+            - "pyproject.toml"
+            - "poetry.lock"
+            - ".github/workflows/frontend.yml"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    verify:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v7
+                with:
+                    persist-credentials: false
+
+            -   name: Install Poetry
+                run: pipx install poetry
+
+            -   name: Python Setup
+                uses: actions/setup-python@v6
+                with:
+                    python-version: "3.13"
+                    cache: poetry
+
+            -   name: Install Backend
+                run: poetry install --only main
+
+            -   name: Export OpenAPI Document
+                id: openapi
+                run: poetry run python scripts/export_openapi.py --output generated/openapi.json
+
+            -   name: Node Setup
+                uses: actions/setup-node@v6
+                with:
+                    node-version: "24"
+                    cache: npm
+                    cache-dependency-path: frontend/package-lock.json
+
+            -   name: Install Frontend
+                run: npm ci
+                working-directory: frontend
+
+            -   name: Verify Generated API Client
+                id: generated_client
+                run: npm run generate:check
+                working-directory: frontend
+
+            -   name: Unit Tests
+                id: tests
+                run: npm run test:coverage -- --reporter=default --reporter=json --outputFile.json=coverage/test-results.json
+                working-directory: frontend
+
+            -   name: Type Check
+                id: typecheck
+                run: npm run typecheck
+                working-directory: frontend
+
+            -   name: Build
+                id: build
+                run: npm run build
+                working-directory: frontend
+
+            -   name: Job Summary
+                if: always()
+                continue-on-error: true
+                env:
+                    OPENAPI_OUTCOME: ${{ steps.openapi.outcome }}
+                    GENERATED_CLIENT_OUTCOME: ${{ steps.generated_client.outcome }}
+                    TEST_OUTCOME: ${{ steps.tests.outcome }}
+                    TYPECHECK_OUTCOME: ${{ steps.typecheck.outcome }}
+                    BUILD_OUTCOME: ${{ steps.build.outcome }}
+                run: |
+                    node <<'JS'
+                    const fs = require("node:fs");
+
+                    const statuses = {
+                        success: "✅ Passed",
+                        failure: "❌ Failed",
+                        cancelled: "⚪ Cancelled",
+                        skipped: "⏭️ Skipped",
+                    };
+                    const status = (name) => statuses[process.env[name]] ?? "➖ Not run";
+                    const lines = [
+                        "## Frontend verification",
+                        "",
+                        "| Check | Result |",
+                        "| --- | --- |",
+                        `| OpenAPI export | ${status("OPENAPI_OUTCOME")} |`,
+                        `| Generated API client | ${status("GENERATED_CLIENT_OUTCOME")} |`,
+                        `| Unit tests | ${status("TEST_OUTCOME")} |`,
+                        `| TypeScript | ${status("TYPECHECK_OUTCOME")} |`,
+                        `| Production build | ${status("BUILD_OUTCOME")} |`,
+                    ];
+
+                    const testPath = "frontend/coverage/test-results.json";
+                    try {
+                        const tests = JSON.parse(fs.readFileSync(testPath, "utf8"));
+                        lines.push(
+                            "",
+                            "### Tests",
+                            "",
+                            "| Files | Total | Passed | Failed | Pending | Todo |",
+                            "| ---: | ---: | ---: | ---: | ---: | ---: |",
+                            `| ${tests.testResults?.length ?? 0} | ${tests.numTotalTests ?? 0} | ${tests.numPassedTests ?? 0} | ${tests.numFailedTests ?? 0} | ${tests.numPendingTests ?? 0} | ${tests.numTodoTests ?? 0} |`,
+                        );
+                    } catch {
+                        lines.push("", "### Tests", "", "Test results were not produced.");
+                    }
+
+                    const coveragePath = "frontend/coverage/coverage-summary.json";
+                    try {
+                        const {total} = JSON.parse(fs.readFileSync(coveragePath, "utf8"));
+                        lines.push(
+                            "",
+                            "### Coverage",
+                            "",
+                            "| Metric | Covered | Total | Coverage |",
+                            "| --- | ---: | ---: | ---: |",
+                        );
+                        for (const [label, key] of [
+                            ["Statements", "statements"],
+                            ["Branches", "branches"],
+                            ["Functions", "functions"],
+                            ["Lines", "lines"],
+                        ]) {
+                            const metric = total[key];
+                            lines.push(`| ${label} | ${metric.covered} | ${metric.total} | ${metric.pct.toFixed(2)}% |`);
+                        }
+                    } catch {
+                        lines.push("", "### Coverage", "", "Coverage results were not produced.");
+                    }
+
+                    fs.writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+                    JS

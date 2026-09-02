@@ -1,0 +1,182 @@
+name: Backend
+
+on:
+    push:
+        branches: [ main, frontend, "v*" ]
+        paths:
+            - "src/**"
+            - "tests/**"
+            - "scripts/**"
+            - "pyproject.toml"
+            - "poetry.lock"
+            - ".github/workflows/backend.yml"
+    pull_request:
+        branches: [ main, frontend, "v*" ]
+        types: [ opened, synchronize, reopened ]
+        paths:
+            - "src/**"
+            - "tests/**"
+            - "scripts/**"
+            - "pyproject.toml"
+            - "poetry.lock"
+            - ".github/workflows/backend.yml"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    verify:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v7
+                with:
+                    persist-credentials: false
+
+            -   name: Install Poetry
+                run: pipx install poetry
+
+            -   name: Python Setup
+                uses: actions/setup-python@v6
+                with:
+                    python-version: "3.13"
+                    cache: poetry
+
+            -   name: Install Backend
+                run: poetry install -E dev
+
+            -   name: Lint
+                id: lint
+                run: poetry run ruff check src scripts tests
+
+            -   name: Unit Tests
+                id: tests
+                run: |
+                    mkdir -p reports/backend
+                    poetry run pytest \
+                        --cov=echo \
+                        --cov-report=term-missing \
+                        --cov-report=xml:reports/backend/coverage.xml \
+                        --junitxml=reports/backend/pytest.xml
+
+            -   name: Compile
+                id: compile
+                run: poetry run python -m compileall -q src scripts tests
+
+            -   name: Validate OpenAPI Export
+                id: openapi
+                run: poetry run python scripts/export_openapi.py --output /tmp/openapi.json
+
+            -   name: Validate Database Initialization
+                id: database
+                run: |
+                    poetry run python - <<'PY'
+                    import asyncio
+                    import sqlite3
+                    from pathlib import Path
+                    from tempfile import TemporaryDirectory
+
+                    from echo.core.config import StorageConfig
+                    from echo.storage.database import Database
+                    from echo.storage.schema import SCHEMA_VERSION
+
+                    async def main() -> None:
+                        with TemporaryDirectory() as directory:
+                            path = Path(directory) / "echo.db"
+                            database = Database(StorageConfig(database=path))
+                            await database.initialize()
+                            await database.close()
+
+                            with sqlite3.connect(path) as connection:
+                                schema_version = connection.execute(
+                                    "PRAGMA user_version"
+                                ).fetchone()[0]
+
+                            assert schema_version == SCHEMA_VERSION == 1
+
+                    asyncio.run(main())
+                    PY
+
+            -   name: Validate Database Upgrade Command
+                id: upgrade
+                run: poetry run python scripts/upgrade_database.py --help
+
+            -   name: Job Summary
+                if: always()
+                continue-on-error: true
+                env:
+                    LINT_OUTCOME: ${{ steps.lint.outcome }}
+                    TEST_OUTCOME: ${{ steps.tests.outcome }}
+                    COMPILE_OUTCOME: ${{ steps.compile.outcome }}
+                    OPENAPI_OUTCOME: ${{ steps.openapi.outcome }}
+                    DATABASE_OUTCOME: ${{ steps.database.outcome }}
+                    UPGRADE_OUTCOME: ${{ steps.upgrade.outcome }}
+                run: |
+                    python3 - <<'PY'
+                    import os
+                    import xml.etree.ElementTree as ET
+                    from pathlib import Path
+
+                    report = Path(os.environ["GITHUB_STEP_SUMMARY"])
+                    statuses = {
+                        "success": "✅ Passed",
+                        "failure": "❌ Failed",
+                        "cancelled": "⚪ Cancelled",
+                        "skipped": "⏭️ Skipped",
+                    }
+
+                    def status(name: str) -> str:
+                        return statuses.get(os.environ.get(name, ""), "➖ Not run")
+
+                    lines = [
+                        "## Backend verification",
+                        "",
+                        "| Check | Result |",
+                        "| --- | --- |",
+                        f"| Lint | {status('LINT_OUTCOME')} |",
+                        f"| Unit tests | {status('TEST_OUTCOME')} |",
+                        f"| Bytecode compilation | {status('COMPILE_OUTCOME')} |",
+                        f"| OpenAPI export | {status('OPENAPI_OUTCOME')} |",
+                        f"| Database initialization | {status('DATABASE_OUTCOME')} |",
+                        f"| Database upgrade command | {status('UPGRADE_OUTCOME')} |",
+                    ]
+
+                    try:
+                        cases = ET.parse("reports/backend/pytest.xml").getroot().findall(".//testcase")
+                        failures = sum(case.find("failure") is not None for case in cases)
+                        errors = sum(case.find("error") is not None for case in cases)
+                        skipped = sum(case.find("skipped") is not None for case in cases)
+                        passed = len(cases) - failures - errors - skipped
+                        duration = sum(float(case.get("time", 0)) for case in cases)
+                        lines.extend([
+                            "",
+                            "### Tests",
+                            "",
+                            "| Total | Passed | Failed | Errors | Skipped | Duration |",
+                            "| ---: | ---: | ---: | ---: | ---: | ---: |",
+                            f"| {len(cases)} | {passed} | {failures} | {errors} | {skipped} | {duration:.2f}s |",
+                        ])
+                    except (OSError, ValueError, ET.ParseError):
+                        lines.extend(["", "### Tests", "", "Test results were not produced."])
+
+                    try:
+                        coverage = ET.parse("reports/backend/coverage.xml").getroot()
+                        line_rate = float(coverage.get("line-rate", 0)) * 100
+                        branch_rate = float(coverage.get("branch-rate", 0)) * 100
+                        lines.extend([
+                            "",
+                            "### Coverage",
+                            "",
+                            "| Metric | Covered | Total | Coverage |",
+                            "| --- | ---: | ---: | ---: |",
+                            f"| Statements | {coverage.get('lines-covered', '0')} | {coverage.get('lines-valid', '0')} | {line_rate:.2f}% |",
+                            f"| Branches | {coverage.get('branches-covered', '0')} | {coverage.get('branches-valid', '0')} | {branch_rate:.2f}% |",
+                        ])
+                    except (OSError, ValueError, ET.ParseError):
+                        lines.extend(["", "### Coverage", "", "Coverage results were not produced."])
+
+                    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                    PY

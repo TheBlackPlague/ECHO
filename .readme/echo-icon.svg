@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+    <title id="title">ECHO icon</title>
+
+    <g transform="translate(8 8) scale(1.5)">
+        <rect width="160" height="160" rx="45" fill="#091C3B"/>
+        <path d="M98 45A50 50 0 1 0 98 115" fill="none" stroke="#2878F0" stroke-width="15" stroke-linecap="round"/>
+        <path d="M82 61A27 27 0 1 0 82 99" fill="none" stroke="#45D7E8" stroke-width="15" stroke-linecap="round"/>
+        <circle cx="63" cy="80" r="10" fill="#F4FAFF"/>
+        <path d="M100 80h10" stroke="#45D7E8" stroke-width="15" stroke-linecap="round"/>
+        <rect x="125" y="62.5" width="30" height="35" rx="10" fill="#45D7E8"/>
+    </g>
+</svg>

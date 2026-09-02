@@ -1,0 +1,76 @@
+# ECHO — Emergency Copy Held Offsite
+# Copy this file to config.yml and adjust the mounted paths.
+# Any property can be overridden with ECHO_<SECTION>__<PROPERTY>.
+
+api:
+    host: 0.0.0.0
+    port: 8000
+
+    # External base path when ECHO is served behind a reverse proxy.
+    # Set to "" (or override with ECHO_API__ROOT_PATH="") when ECHO is the root service.
+    root_path: /echo
+
+    access_log: true
+    docs_enabled: true
+
+    # Add an exact frontend origin only when it is hosted on another origin.
+    # An empty list is preferred for the normal same-origin reverse-proxy setup.
+    cors_origins: [ ]
+
+    # Keep both secrets in the environment. The API key authenticates direct API
+    # clients and signs browser sessions; the frontend only ever receives a password.
+    # ECHO_API__API_KEY must be at least 16 characters.
+    # ECHO_API__WEB_PASSWORD must be at least 12 characters.
+    api_key: null
+    web_password: null
+    session_ttl_seconds: 86400
+    # Set false only for local development over plain HTTP.
+    session_cookie_secure: true
+
+logging:
+    level: INFO
+    directory: /data/logs
+
+storage:
+    database: /data/echo.db
+    retained_output_bytes: 65536
+
+rclone:
+    binary: rclone
+    config_file: /config/rclone/rclone.conf
+    # The rclone remote is the provider connection name; bucket is ECHO's fixed archive root.
+    remote: null
+    bucket: null
+    validation_timeout_seconds: 30
+    # Applied only when the configured remote is confirmed as provider=AWS and type=s3.
+    # These defaults favor large files on one rotational source disk: one sequential
+    # reader feeding eight concurrent 16 MiB multipart uploads within a 256 MiB cap.
+    s3_upload:
+        enabled: true
+        transfers: 1
+        chunk_size_mib: 16
+        upload_concurrency: 8
+        max_buffer_memory_mib: 256
+
+archive:
+    # Keep disabled until rclone.remote, rclone.bucket, and at least one plan are configured.
+    enabled: false
+    max_concurrent_plans: 1
+    shutdown_timeout_seconds: 30
+    plans: [ ]
+
+    # Example:
+    # plans:
+    #   - name: cinema
+    #     source: /archive-sources/cinema
+    #     # Paths are relative to rclone.bucket; do not include the bucket name.
+    #     destination: cinema
+    #     enabled: true
+    #     cron: "0 3 * * *"
+    #     # On AWS, newly transferred files are verified in flight without a second HDD read.
+    #     verify_after_archive: true
+    #     exclude:
+    #       - Temporary/**
+
+
+
